@@ -21,52 +21,101 @@ from bert4keras.layers import ConditionalRandomField,MaximumEntropyMarkovModel
 from keras.layers import Dense
 from keras.models import Model
 from tqdm import tqdm
-import pylcs
 
 def parse_data(filename):
-    D = []
+    D, schema_dict = [], {}
+    id2label, label2id, n = {}, {}, 0
+    labels = set()
     with open(filename) as f:
         for l in f:
             l = json.loads(l)
-            arguments = {}
-            for event in l['event_list']:
-                for argument in event['arguments']:
-                    key = argument['argument']
-#                    value = (event['event_type'], argument['role'])
-                    value = '#'.join([event['event_type'], argument['role']])
-                    arguments[key] = value
-            D.append((l['text'], arguments))
-    return D
-
-
-
-
-def load_data():
-        # 读取数据
-    train_data = parse_data('./datasets/train.json')
-    valid_data = parse_data('./datasets/dev.json')
-    
-    schema_dict = {}
-    
-    # 读取schema
-    with open('./datasets/event_schema.json') as f:
-        id2label, label2id, n = {}, {}, 0
-        for l in f:
-            l = json.loads(l)
-            for role in l['role_list']:
-                key = '#'.join([l['event_type'], role['role']])
-                id2label[n] = key
-                label2id[key] = n
-                n += 1
-        num_labels = len(id2label) * 2 + 1
+#            print(l)
+            for item in l:
+                tmp = []
+                for entity_type in item['entity_result']:
+                    start = int(entity_type['start_pos'])
+                    end = int(entity_type['end_pos']) + 1
+                    labels.add(entity_type['entity_type'])
+#                    print(entity_type)
+                    tmp.append([item['text'][start:end], entity_type['entity_type']])
+                D.append(tmp)
+                
+    for label in list(labels):
+        id2label[n] = label
+        label2id[label] = n
+        n += 1
+        
+    num_labels = len(id2label) * 2 + 1
         
     schema_dict['id2label'] = id2label    
     schema_dict['label2id'] = label2id 
     schema_dict['num_labels'] = num_labels
+    
+    return D, schema_dict
+
+def parse_labeleddata(filename):
+    D, schema_dict = [], {}
+    id2label, label2id, n = {}, {}, 0
+    labels = set()
+    with open(filename) as f:
+        for l in f:
+            l = json.loads(l)
+#            print(l)
+            for item in l:
+                for entity_type in item['entity_result']:
+                    labels.add(entity_type['entity_type'])
+                    
+                D.append((item['text'], item['entity_result']))
+                
+    for label in list(labels):
+        id2label[n] = label
+        label2id[label] = n
+        n += 1
+        
+    num_labels = len(id2label) * 2 + 1
+        
+    schema_dict['id2label'] = id2label    
+    schema_dict['label2id'] = label2id 
+    schema_dict['num_labels'] = num_labels
+    
+    return D, schema_dict
+
+
+def load_data():
+    # 读取数据
+    train_data, schema_dict = parse_data('./labeled_data/train.json')
+    valid_data,_ = parse_data('./labeled_data/dev.json')
         
     return train_data,valid_data,schema_dict
 
+def transform2geshi(length, arguments, label2id):
+    labels = [0] * length
+    for argument in arguments:
+#        print(argument['word'])
+        start_index = int(argument['start_pos'])
+        if start_index != -1:
+            labels[start_index] = label2id[argument['entity_type']] * 2 + 1
+            for i in range(1, len(argument['word'])):
+                labels[start_index + i] = label2id[argument['entity_type']] * 2 + 2
+    assert len(labels) == length
+    
+    return labels
 
+def ziptextlabels(text, arguments):
+    labels = [0] * len(text)
+    for argument in arguments:
+#        print(argument['word'])
+        start_index = int(argument['start_pos'])
+        if start_index != -1:
+            labels[start_index] = argument['entity_type']
+            for i in range(1, len(argument['word'])):
+                labels[start_index + i] = argument['entity_type']
+    assert len(labels) == len(text)
+    
+    return (text, labels)
+
+                
+                
 class data_generator(DataGenerator):
     """数据生成器
     """
@@ -84,28 +133,25 @@ class data_generator(DataGenerator):
         else:
             self.steps = None
     
-    def search(self, pattern, sequence):
-        """从sequence中寻找子串pattern
-        如果找到，返回第一个下标；否则返回-1。
-        """
-        n = len(pattern)
-        for i in range(len(sequence)):
-            if sequence[i:i + n] == pattern:
-                return i
-        return -1
-    
     def __iter__(self, random=False):
         batch_token_ids, batch_segment_ids, batch_labels = [], [], []
-        for is_end, (text, arguments) in self.sample(random):
-            token_ids, segment_ids = self.tokenizer.encode(text, max_length=self.maxlen)
-            labels = [0] * len(token_ids)
-            for argument in arguments.items():
-                a_token_ids = self.tokenizer.encode(argument[0])[0][1:-1]
-                start_index = self.search(a_token_ids, token_ids)
-                if start_index != -1:
-                    labels[start_index] = self.label2id[argument[1]] * 2 + 1
-                    for i in range(1, len(a_token_ids)):
-                        labels[start_index + i] = self.label2id[argument[1]] * 2 + 2
+        for is_end, item in self.sample(random):
+            token_ids, labels = [self.tokenizer._token_start_id], [0]
+            for w, l in item:
+                w_token_ids = self.tokenizer.encode(w)[0][1:-1]
+                if len(token_ids) + len(w_token_ids) < self.maxlen:
+                    token_ids += w_token_ids
+                    if l == 'O':
+                        labels += [0] * len(w_token_ids)
+                    else:
+                        B = self.label2id[l] * 2 + 1
+                        I = self.label2id[l] * 2 + 2
+                        labels += ([B] + [I] * (len(w_token_ids) - 1))
+                else:
+                    break
+            token_ids += [self.tokenizer._token_end_id]
+            labels += [0]
+            segment_ids = [0] * len(token_ids)
             batch_token_ids.append(token_ids)
             batch_segment_ids.append(segment_ids)
             batch_labels.append(labels)
@@ -116,67 +162,74 @@ class data_generator(DataGenerator):
                 yield [batch_token_ids, batch_segment_ids], batch_labels
                 batch_token_ids, batch_segment_ids, batch_labels = [], [], []
                 
-                
 
-def viterbi_decode(nodes, trans, num_labels):
-    """Viterbi算法求最优路径
-    其中nodes.shape=[seq_len, num_labels],
-        trans.shape=[num_labels, num_labels].
+            
+
+class NamedEntityRecognizer(ViterbiDecoder):
+    """命名实体识别器
     """
-    labels = np.arange(num_labels).reshape((1, -1))
-    scores = nodes[0].reshape((-1, 1))
-    scores[1:] -= np.inf  # 第一个标签必然是0
-    paths = labels
-    for l in range(1, len(nodes)):
-        M = scores + trans + nodes[l].reshape((1, -1))
-        idxs = M.argmax(0)
-        scores = M.max(0).reshape((-1, 1))
-        paths = np.concatenate([paths[:, idxs], labels], 0)
-    return paths[:, scores[0].argmax()]
-
-
-def extract_arguments(Model, tokenizer, schema_dict, text):
-    """命名实体识别函数
-    """
-    tokens = tokenizer.tokenize(text)
-    while len(tokens) > 512:
-        tokens.pop(-2)
-    token_ids = tokenizer.tokens_to_ids(tokens)
-    segment_ids = [0] * len(token_ids)
-    nodes = Model.model.predict([[token_ids], [segment_ids]])[0]
-    trans = K.eval(Model.CRF.trans)
-    labels = viterbi_decode(nodes, trans, schema_dict['num_labels'])[1:-1]
-    arguments, starting = [], False
-    for token, label in zip(tokens[1:-1], labels):
-        if label > 0:
-            if label % 2 == 1:
-                starting = True
-                arguments.append([[token], schema_dict['id2label'][(label - 1) // 2]])
-            elif starting:
-                arguments[-1][0].append(token)
+    
+    def __init__(self, trans, model, tokenizer, id2label,starts=None, ends=None):
+        self.trans = trans
+        self.num_labels = len(trans)
+        self.non_starts = []
+        self.non_ends = []
+        self.model = model
+        self.tokenizer = tokenizer
+        self.id2label = id2label
+        
+        
+        if starts is not None:
+            for i in range(self.num_labels):
+                if i not in starts:
+                    self.non_starts.append(i)
+        if ends is not None:
+            for i in range(self.num_labels):
+                if i not in ends:
+                    self.non_ends.append(i)
+    
+    def recognize(self, text):
+        tokens = self.tokenizer.tokenize(text)
+        while len(tokens) > 512:
+            tokens.pop(-2)
+        mapping = self.tokenizer.rematch(text, tokens)
+        token_ids = self.tokenizer.tokens_to_ids(tokens)
+        segment_ids = [0] * len(token_ids)
+        nodes = self.model.predict([[token_ids], [segment_ids]])[0]
+        labels = self.decode(nodes)
+        entities, starting = [], False
+        for i, label in enumerate(labels):
+            if label > 0:
+                if label % 2 == 1:
+                    starting = True
+                    entities.append([[i], self.id2label[(label - 1) // 2]])
+                elif starting:
+                    entities[-1][0].append(i)
+                else:
+                    starting = False
             else:
                 starting = False
-        else:
-            starting = False
 
-    return {tokenizer.decode(w, w): l for w, l in arguments}
+        return [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1], l)
+                for w, l in entities]
 
 
-def evaluate(data, Model, tokenizer, schema_dict):
+
+def evaluate(data,NER):
+    """评测函数
+    """
     X, Y, Z = 1e-10, 1e-10, 1e-10
-    for text, arguments in tqdm(data):
-        inv_arguments = {v: k for k, v in arguments.items()}
-        pred_arguments = extract_arguments(Model, tokenizer, schema_dict, text)
-        pred_inv_arguments = {v: k for k, v in pred_arguments.items()}
-        Y += len(pred_inv_arguments)
-        Z += len(inv_arguments)
-        for k, v in pred_inv_arguments.items():
-            if k in inv_arguments:
-                # 用最长公共子串作为匹配程度度量
-                l = pylcs.lcs(v, inv_arguments[k])
-                X += 2. * l / (len(v) + len(inv_arguments[k]))
+    for d in tqdm(data):
+        text = ''.join([i[0] for i in d])
+        R = set(NER.recognize(text))
+        T = set([tuple(i) for i in d if i[1] != 'O'])
+        X += len(R & T)
+        Y += len(R)
+        Z += len(T)
     f1, precision, recall = 2 * X / (Y + Z), X / Y, X / Z
-    return {'f1':f1, 'precision':precision, 'recall':recall}
+    return f1, precision, recall
+
+
 
 ##albert model
 class TagModel():
@@ -251,21 +304,35 @@ def train(train_param, model_save_path):
     with open(params_file,'w',encoding='utf-8') as json_file:
         json.dump(train_param,json_file, indent=4 ,ensure_ascii=False)
 
-    
-    eval_result = evaluate(valid_data, trainmodel, tokenizer, schema_dict)
-    
-    
+    NER = NamedEntityRecognizer(K.eval(trainmodel.CRF.trans), trainmodel.model, tokenizer, schema_dict['id2label'], starts=[0], ends=[0])
+    eval_result = evaluate(valid_data, NER)
     
     return eval_result
 
+def predict(data, model_path):
+    result = []
+    
+    with open(os.path.join(model_save_path,'config.json')) as f:
+        config = json.load(f)
 
+    tokenizer = Tokenizer(train_param['dict_path'], do_lower_case=True)
+    Pmodel = TagModel(config)
+    Pmodel.model.load_weights(os.path.join(model_save_path,'best_model.weights'))
+    
+    NER = NamedEntityRecognizer(K.eval(Pmodel.CRF.trans), Pmodel.model, tokenizer, schema_dict['id2label'], starts=[0], ends=[0])
+    
+    for d in tqdm(data):
+        text = ''.join([i[0] for i in d])
+        result.append(NER.recognize(text))
+
+    return result
 
 if __name__ == '__main__':
     
     train_param = {}
     # 基本信息
     train_param['maxlen'] = 64
-    train_param['epochs'] = 5
+    train_param['epochs'] = 50
     train_param['batch_size'] = 32
     train_param['learing_rate'] = 2e-5  # bert_layers越小，学习率应该要越大
     train_param['crf_lr_multiplier'] = 1000  # 必要时扩大CRF层的学习率
@@ -277,9 +344,43 @@ if __name__ == '__main__':
     train_param['checkpoint_path'] = bert_path + '/albert/albert_tiny_zh_google/albert_model.ckpt'
     train_param['dict_path'] = bert_path + '/albert/albert_tiny_zh_google/vocab.txt'
     
-    
     model_save_path = './model'
+    
+    #test parse data
+    train_data,valid_data,schema_dict = load_data()
     eval_result = train(train_param, model_save_path)
+    
+#    realdata=[]
+#    predictdata = []
+#    for text, entities in valid_data:
+#        realdata.append(ziptextlabels(text, entities))
+    
+    Presult = predict(valid_data, model_save_path)
+    
+#    with open(os.path.join(model_save_path,'config.json')) as f:
+#        config = json.load(f)
+#
+#    tokenizer = Tokenizer(train_param['dict_path'], do_lower_case=True)
+#    trainmodel,tokenizer = train(train_param, model_save_path)
+    
+#    X, Y, Z = 1e-10, 1e-10, 1e-10
+#    for text, arguments in tqdm(valid_data):
+#        R = transform2geshi(len(text), arguments, schema_dict['label2id'])
+#        tokens = tokenizer.tokenize(text)
+#        while len(tokens) > 512:
+#            tokens.pop(-2)
+#        token_ids = tokenizer.tokens_to_ids(tokens)
+#        segment_ids = [0] * len(token_ids)
+#        nodes = trainmodel.model.predict([[token_ids], [segment_ids]])[0]
+#        trans = K.eval(trainmodel.CRF.trans)
+#        P = viterbi_decode(nodes, trans, schema_dict['num_labels'])[1:]
+#        
+##        T = extract_arguments(trainmodel, tokenizer, schema_dict, text)
+#        print(P)
+#        X += len(R & P)
+#        Y += len(R)
+#        Z += len(P)
+#    f1, precision, recall = 2 * X / (Y + Z), X / Y, X / Z
     
     
 

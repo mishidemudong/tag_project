@@ -1,0 +1,26 @@
+{
+    "maxlen": 64,
+    "epochs": 50,
+    "batch_size": 32,
+    "learing_rate": 2e-05,
+    "crf_lr_multiplier": 1000,
+    "albert": true,
+    "config_path": "/media/liang/Nas/PreTrainModel/albert/albert_tiny_zh_google/albert_config_tiny_g.json",
+    "checkpoint_path": "/media/liang/Nas/PreTrainModel/albert/albert_tiny_zh_google/albert_model.ckpt",
+    "dict_path": "/media/liang/Nas/PreTrainModel/albert/albert_tiny_zh_google/vocab.txt",
+    "schema_dict": {
+        "id2label": {
+            "0": "省",
+            "1": "市",
+            "2": "号",
+            "3": "大道"
+        },
+        "label2id": {
+            "省": 0,
+            "市": 1,
+            "号": 2,
+            "大道": 3
+        },
+        "num_labels": 9
+    }
+}
