@@ -22,6 +22,14 @@ from keras.layers import Dense
 from keras.models import Model
 from tqdm import tqdm
 
+
+def read_addr_dict():
+    with open("./datasets/addr_dict.dict") as f:
+        for l in f:
+            addr_dict = l
+
+    return { j:i for i,j in addr_dict.items()}
+
 def parse_data(filename):
     D, schema_dict = [], {}
     id2label, label2id, n = {}, {}, 0
@@ -68,6 +76,40 @@ def parse_labeleddata(filename):
                 D.append((item['text'], item['entity_result']))
                 
     for label in list(labels):
+        id2label[n] = label
+        label2id[label] = n
+        n += 1
+        
+    num_labels = len(id2label) * 2 + 1
+        
+    schema_dict['id2label'] = id2label    
+    schema_dict['label2id'] = label2id 
+    schema_dict['num_labels'] = num_labels
+    
+    return D, schema_dict
+
+
+def parse_data1(filename):
+    addr_dict = read_addr_dict()
+    D, schema_dict = [], {}
+    id2label, label2id, n = {}, {}, 0
+    labels = set()
+    with open(filename) as f:
+        for l in f:
+            l = json.loads(l)
+#            print(l)
+            for item in l['txt']:
+                tmp = []
+                for entity_type in item['entityContent']:
+                    start = int(entity_type['start_pos'])
+                    end = int(entity_type['end_pos']) + 1
+                    labels.add(entity_type['label_id'])
+#                    print(entity_type)
+                    tmp.append([item['txt'][start:end], addr_dict[entity_type['label_id']]])
+                D.append(tmp)
+                
+    for id_ in list(labels):
+        label = addr_dict[id_]
         id2label[n] = label
         label2id[label] = n
         n += 1
