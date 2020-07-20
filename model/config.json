@@ -10,15 +10,15 @@
     "dict_path": "/media/liang/Nas/PreTrainModel/albert/albert_tiny_zh_google/vocab.txt",
     "schema_dict": {
         "id2label": {
-            "0": "省",
-            "1": "市",
-            "2": "号",
+            "0": "市",
+            "1": "号",
+            "2": "省",
             "3": "大道"
         },
         "label2id": {
-            "省": 0,
-            "市": 1,
-            "号": 2,
+            "市": 0,
+            "号": 1,
+            "省": 2,
             "大道": 3
         },
         "num_labels": 9

@@ -16,7 +16,9 @@ from bert4keras.models import build_transformer_model
 from bert4keras.tokenizers import Tokenizer
 from bert4keras.optimizers import Adam
 from bert4keras.snippets import sequence_padding, DataGenerator
-from bert4keras.snippets import open, ViterbiDecoder
+#from bert4keras.snippets import open, ViterbiDecoder
+from ViterbiDecoderClass import ViterbiDecoder
+
 from bert4keras.layers import ConditionalRandomField,MaximumEntropyMarkovModel
 from keras.layers import Dense
 from keras.models import Model
@@ -238,7 +240,13 @@ class NamedEntityRecognizer(ViterbiDecoder):
         token_ids = self.tokenizer.tokens_to_ids(tokens)
         segment_ids = [0] * len(token_ids)
         nodes = self.model.predict([[token_ids], [segment_ids]])[0]
-        labels = self.decode(nodes)
+        labels, score, scoresarray = self.decode(nodes)
+        print(score)
+        print(scoresarray)
+
+        print(labels.shape)
+        print(labels[0])
+        
         entities, starting = [], False
         for i, label in enumerate(labels):
             if label > 0:
@@ -252,8 +260,11 @@ class NamedEntityRecognizer(ViterbiDecoder):
             else:
                 starting = False
 
-        return [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1], l)
-                for w, l in entities]
+        # return [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1], {l:sum(scoresarray[mapping[w[0]][0]:mapping[w[-1]][-1] + 1])})
+        #         for w, l in entities], score
+        return [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1],
+                 l) for w, l in entities], [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1], {l:sum(scoresarray[mapping[w[0]][0]:mapping[w[-1]][-1] + 1])})
+                for w, l in entities], score
 
 
 
@@ -263,7 +274,7 @@ def evaluate(data,NER):
     X, Y, Z = 1e-10, 1e-10, 1e-10
     for d in tqdm(data):
         text = ''.join([i[0] for i in d])
-        R = set(NER.recognize(text))
+        R = set(NER.recognize(text)[0])
         T = set([tuple(i) for i in d if i[1] != 'O'])
         X += len(R & T)
         Y += len(R)
@@ -365,7 +376,7 @@ def predict(data, model_path):
     
     for d in tqdm(data):
         text = ''.join([i[0] for i in d])
-        result.append(NER.recognize(text))
+        result.append(NER.recognize(text)[1:])
 
     return result
 
