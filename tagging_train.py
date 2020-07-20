@@ -240,12 +240,11 @@ class NamedEntityRecognizer(ViterbiDecoder):
         token_ids = self.tokenizer.tokens_to_ids(tokens)
         segment_ids = [0] * len(token_ids)
         nodes = self.model.predict([[token_ids], [segment_ids]])[0]
-        labels, score, scoresarray = self.decode(nodes)
-        print(score)
-        print(scoresarray)
-
-        print(labels.shape)
-        print(labels[0])
+        # labels, score, pathscore, scoresarray = self.decode(nodes)
+        labels, scoresarray = self.decode(nodes)
+        # print(scoresarray)
+        # print(labels.shape)
+        # print(labels[0])
         
         entities, starting = [], False
         for i, label in enumerate(labels):
@@ -263,8 +262,8 @@ class NamedEntityRecognizer(ViterbiDecoder):
         # return [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1], {l:sum(scoresarray[mapping[w[0]][0]:mapping[w[-1]][-1] + 1])})
         #         for w, l in entities], score
         return [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1],
-                 l) for w, l in entities], [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1], {l:sum(scoresarray[mapping[w[0]][0]:mapping[w[-1]][-1] + 1])})
-                for w, l in entities], score
+                 l) for w, l in entities], [(text[mapping[w[0]][0]:mapping[w[-1]][-1] + 1], {l:sum(scoresarray[mapping[w[0]][0]:mapping[w[-1]][-1] + 1])/(mapping[w[-1]][-1]- mapping[w[0]][0] + 1)})
+                for w, l in entities]
 
 
 
@@ -376,7 +375,7 @@ def predict(data, model_path):
     
     for d in tqdm(data):
         text = ''.join([i[0] for i in d])
-        result.append(NER.recognize(text)[1:])
+        result.append(NER.recognize(text)[1])
 
     return result
 
